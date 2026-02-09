@@ -269,11 +269,33 @@ select {
 }
 
 .auth-card {
-  width: min(420px, 100%);
+  width: min(460px, 100%);
   display: grid;
-  gap: 16px;
+  gap: 18px;
+  text-align: center;
+  position: relative;
+  padding: 28px;
 }
 
+.auth-header {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-card .form {
+  text-align: left;
+}
+
+.auth-card .lang-toggle {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+}
+
+.auth-card .btn {
+  width: 100%;
+  justify-content: center;
+}
 .form {
   display: grid;
   gap: 16px;
@@ -406,6 +428,11 @@ select {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+}
+
+.modal-body.compact {
+  display: grid;
+  gap: 12px;
 }
 
 .rating-summary {

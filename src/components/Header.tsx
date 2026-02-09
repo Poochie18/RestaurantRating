@@ -3,12 +3,14 @@ import { useState } from "react";
 import { logout } from "../supabase/auth";
 import { useAuth } from "../app/AuthProvider";
 import { useLanguage } from "../app/LanguageProvider";
+import { Modal } from "./Modal";
 
 export function Header() {
   const { user, profile } = useAuth();
   const { t, lang, toggle } = useLanguage();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -47,7 +49,13 @@ export function Header() {
                 <Link to="/profile" className="menu-item" onClick={() => setOpen(false)}>
                   {t("profile")}
                 </Link>
-                <button className="menu-item" onClick={handleLogout}>
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    setOpen(false);
+                    setConfirmOpen(true);
+                  }}
+                >
                   {t("logout")}
                 </button>
               </div>
@@ -58,6 +66,19 @@ export function Header() {
       <main className="app-main">
         <Outlet />
       </main>
+      <Modal title={t("logoutConfirmTitle")} open={confirmOpen} onClose={() => setConfirmOpen(false)}>
+        <div className="modal-body compact">
+          <p className="muted">{t("logoutConfirmText")}</p>
+          <div className="form-footer">
+            <button className="btn btn-ghost" onClick={() => setConfirmOpen(false)}>
+              {t("cancel")}
+            </button>
+            <button className="btn btn-danger" onClick={handleLogout}>
+              {t("logoutConfirmYes")}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

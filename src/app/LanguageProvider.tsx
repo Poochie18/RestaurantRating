@@ -14,6 +14,12 @@ const dictionary = {
   friends: { uk: "Друзі", en: "Friends" },
   profile: { uk: "Профіль", en: "Profile" },
   logout: { uk: "Вийти", en: "Logout" },
+  logoutConfirmTitle: { uk: "Підтвердіть вихід", en: "Confirm logout" },
+  logoutConfirmText: {
+    uk: "Ви впевнені, що хочете вийти з акаунту?",
+    en: "Are you sure you want to log out?"
+  },
+  logoutConfirmYes: { uk: "Так, вийти", en: "Yes, log out" },
   spacesTitle: { uk: "Ваші простори", en: "Your spaces" },
   spacesSubtitle: {
     uk: "Створюйте простори та запрошуйте друзів для спільних рейтингів.",
@@ -24,7 +30,26 @@ const dictionary = {
   cancel: { uk: "Скасувати", en: "Cancel" },
   save: { uk: "Зберегти", en: "Save" },
   loading: { uk: "Завантаження...", en: "Loading..." },
-  noSpaces: { uk: "Поки що немає просторів.", en: "No spaces yet." }
+  noSpaces: { uk: "Поки що немає просторів.", en: "No spaces yet." },
+  authTitleLogin: { uk: "Ласкаво просимо", en: "Welcome back" },
+  authSubtitleLogin: { uk: "Увійдіть, щоб оцінювати ресторани.", en: "Sign in to rate restaurants." },
+  authTitleRegister: { uk: "Створити акаунт", en: "Create account" },
+  authSubtitleRegister: { uk: "Почніть оцінювати улюблені місця.", en: "Start rating your favorite places." },
+  authName: { uk: "Ім'я", en: "Name" },
+  authEmail: { uk: "Email", en: "Email" },
+  authPassword: { uk: "Пароль", en: "Password" },
+  authSignIn: { uk: "Увійти", en: "Sign in" },
+  authRegister: { uk: "Зареєструватися", en: "Register" },
+  authHaveAccount: { uk: "Вже маєте акаунт?", en: "Already have an account?" },
+  authNoAccount: { uk: "Немає акаунту?", en: "No account?" },
+  authGoLogin: { uk: "Увійти", en: "Login" },
+  authGoRegister: { uk: "Зареєструватися", en: "Register" },
+  profileTitle: { uk: "Профіль", en: "Profile" },
+  profileSubtitle: { uk: "Керуйте публічною інформацією.", en: "Manage your public info." },
+  profileUpload: { uk: "Завантажити аватар", en: "Upload avatar" },
+  profileDisplayName: { uk: "Ім'я користувача", en: "Display name" },
+  profileEmail: { uk: "Email", en: "Email" },
+  profileSave: { uk: "Зберегти", en: "Save changes" }
 };
 
 const LanguageContext = createContext<LanguageContextValue | undefined>(undefined);

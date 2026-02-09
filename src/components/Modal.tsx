@@ -25,9 +25,6 @@ export function Modal({ title, open, onClose, children }: ModalProps) {
       <div className="modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal-header">
           <h3>{title}</h3>
-          <button className="btn btn-ghost" onClick={onClose}>
-            Close
-          </button>
         </div>
         <div className="modal-body">{children}</div>
       </div>

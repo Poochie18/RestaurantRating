@@ -1,11 +1,13 @@
 ﻿import { useState, type ChangeEvent, type FormEvent } from "react";
 import { useAuth } from "../app/AuthProvider";
+import { useLanguage } from "../app/LanguageProvider";
 import { updateDisplayName } from "../supabase/auth";
 import { uploadAvatar } from "../supabase/storage";
 import { supabase } from "../supabase/client";
 
 export function ProfilePage() {
   const { user, profile, refreshProfile } = useAuth();
+  const { t } = useLanguage();
   const [name, setName] = useState(profile?.display_name || user?.user_metadata?.display_name || "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -58,8 +60,8 @@ export function ProfilePage() {
     <div className="container">
       <div className="page-header">
         <div>
-          <h1>Profile</h1>
-          <p className="muted">Manage your public info.</p>
+          <h1>{t("profileTitle")}</h1>
+          <p className="muted">{t("profileSubtitle")}</p>
         </div>
       </div>
       <div className="card profile-card">
@@ -70,7 +72,7 @@ export function ProfilePage() {
             <span>{displayInitial}</span>
           )}
           <label className="btn btn-ghost">
-            Upload avatar
+            {t("profileUpload")}
             <input type="file" accept="image/*" onChange={handleAvatarChange} hidden />
           </label>
         </div>
@@ -78,15 +80,15 @@ export function ProfilePage() {
           {error && <div className="error">{error}</div>}
           {success && <div className="success">{success}</div>}
           <label className="field">
-            <span>Display name</span>
+            <span>{t("profileDisplayName")}</span>
             <input value={name} onChange={(event) => setName(event.target.value)} />
           </label>
           <label className="field">
-            <span>Email</span>
+            <span>{t("profileEmail")}</span>
             <input value={profile?.email || user.email || ""} disabled />
           </label>
           <button className="btn" type="submit" disabled={loading}>
-            {loading ? "Saving..." : "Save changes"}
+            {loading ? t("loading") : t("profileSave")}
           </button>
         </form>
       </div>
