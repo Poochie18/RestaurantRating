@@ -1,4 +1,5 @@
 ﻿import { useEffect, useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthProvider";
 import { createSpace, listSpaces } from "../supabase/db";
 import { Modal } from "../components/Modal";
@@ -10,6 +11,7 @@ const emptyForm = { name: "" };
 export function HomePage() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -77,14 +79,19 @@ export function HomePage() {
         <div className="card-grid">
           {spaces.length ? (
             spaces.map((space) => (
-              <div className="card" key={space.id}>
+              <button
+                className="card space-tile"
+                key={space.id}
+                onClick={() => navigate(`/spaces/${space.id}`)}
+              >
                 <div className="card-body">
                   <div>
                     <h3 className="card-title">{space.name}</h3>
-                    <p className="muted">Private space</p>
+                    <p className="muted">{t("privateSpace")}</p>
                   </div>
+                  <span className="pill">{t("openSpace")}</span>
                 </div>
-              </div>
+              </button>
             ))
           ) : (
             <p className="muted">{t("noSpaces")}</p>

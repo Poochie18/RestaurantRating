@@ -8,11 +8,12 @@ import type { Rating, RatingCategory, Restaurant } from "../types";
 
 const categories: { key: RatingCategory; label: string }[] = [
   { key: "location", label: "Location" },
+  { key: "service", label: "Service" },
+  { key: "interior", label: "Interior" },
   { key: "menu", label: "Menu" },
   { key: "food", label: "Food" },
-  { key: "alcohol", label: "Alcohol" },
-  { key: "prices", label: "Prices" },
-  { key: "service", label: "Service" }
+  { key: "alcohol", label: "Drinks" },
+  { key: "prices", label: "Price" }
 ];
 
 export function RestaurantDetailsPage() {
@@ -62,7 +63,8 @@ export function RestaurantDetailsPage() {
     const sums = categories.reduce((acc, c) => ({ ...acc, [c.key]: 0 }), {} as Record<RatingCategory, number>);
     ratings.forEach((rating) => {
       categories.forEach((c) => {
-        sums[c.key] += rating[c.key];
+        const value = Number(rating[c.key] ?? 0);
+        sums[c.key] += value;
       });
     });
     const avg = categories.reduce(
@@ -89,6 +91,7 @@ export function RestaurantDetailsPage() {
         alcohol: values.alcohol,
         prices: values.prices,
         service: values.service,
+        interior: values.interior,
         overall_avg: values.overallAvg
       });
       setModalOpen(false);
@@ -193,10 +196,11 @@ export function RestaurantDetailsPage() {
                   location: userRating.location,
                   menu: userRating.menu,
                   food: userRating.food,
-                  alcohol: userRating.alcohol,
-                  prices: userRating.prices,
-                  service: userRating.service
-                }
+            alcohol: userRating.alcohol,
+            prices: userRating.prices,
+            service: userRating.service,
+            interior: userRating.interior
+          }
               : null
           }
           onSubmit={handleSubmitRating}

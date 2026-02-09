@@ -23,6 +23,15 @@ export type SpaceMember = {
   created_at?: string;
 };
 
+export type SpaceInvite = {
+  id: string;
+  space_id: string;
+  email: string;
+  invited_by: string;
+  status: "pending" | "accepted" | "declined";
+  created_at?: string;
+};
+
 export type Restaurant = {
   id: string;
   space_id?: string | null;
@@ -33,7 +42,7 @@ export type Restaurant = {
   updated_at?: string;
 };
 
-export type RatingCategory = "location" | "menu" | "food" | "alcohol" | "prices" | "service";
+export type RatingCategory = "location" | "service" | "interior" | "menu" | "food" | "alcohol" | "prices";
 
 export type Rating = {
   id: string;
@@ -46,8 +55,9 @@ export type Rating = {
   location: number;
   menu: number;
   food: number;
+  service: number;
+  interior: number;
   alcohol: number;
   prices: number;
-  service: number;
   overall_avg: number;
 };
