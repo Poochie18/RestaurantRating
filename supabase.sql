@@ -54,11 +54,30 @@ create table if not exists public.space_invites (
   unique (space_id, email)
 );
 
+create table if not exists public.friend_requests (
+  id uuid primary key default gen_random_uuid(),
+  requester_id uuid not null references auth.users(id) on delete cascade,
+  recipient_id uuid not null references auth.users(id) on delete cascade,
+  status text not null check (status in ('pending', 'accepted', 'declined')),
+  created_at timestamptz default now(),
+  unique (requester_id, recipient_id)
+);
+
+create table if not exists public.friends (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  friend_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz default now(),
+  unique (user_id, friend_id)
+);
+
 -- RLS enable (safe to re-run)
 alter table public.spaces enable row level security;
 alter table public.space_members enable row level security;
 alter table public.restaurants enable row level security;
 alter table public.space_invites enable row level security;
+alter table public.friend_requests enable row level security;
+alter table public.friends enable row level security;
 
 -- Drop old policies if they exist (to avoid duplicates)
 drop policy if exists "spaces_read_members" on public.spaces;
@@ -80,6 +99,14 @@ drop policy if exists "ratings_update_own" on public.ratings;
 drop policy if exists "invites_read_owner" on public.space_invites;
 drop policy if exists "invites_insert_owner" on public.space_invites;
 drop policy if exists "invites_delete_owner" on public.space_invites;
+drop policy if exists "friend_requests_read" on public.friend_requests;
+drop policy if exists "friend_requests_insert" on public.friend_requests;
+drop policy if exists "friend_requests_update" on public.friend_requests;
+drop policy if exists "friend_requests_update_requester" on public.friend_requests;
+drop policy if exists "friend_requests_update_recipient" on public.friend_requests;
+drop policy if exists "friends_read" on public.friends;
+drop policy if exists "friends_delete" on public.friends;
+drop policy if exists "friends_insert" on public.friends;
 
 -- Spaces policies
 create policy "spaces_read_members" on public.spaces
@@ -207,3 +234,31 @@ create policy "invites_delete_owner" on public.space_invites
       where s.id = space_invites.space_id and s.created_by = auth.uid()
     )
   );
+
+-- Friend requests
+create policy "friend_requests_read" on public.friend_requests
+  for select using (auth.uid() = requester_id or auth.uid() = recipient_id);
+
+create policy "friend_requests_insert" on public.friend_requests
+  for insert with check (auth.uid() = requester_id and requester_id <> recipient_id);
+
+-- Allow recipient to accept/decline
+create policy "friend_requests_update_recipient" on public.friend_requests
+  for update using (auth.uid() = recipient_id);
+
+-- Allow requester to re-send if previously declined
+create policy "friend_requests_update_requester" on public.friend_requests
+  for update using (auth.uid() = requester_id and status = 'declined');
+
+create policy "friend_requests_delete" on public.friend_requests
+  for delete using (auth.uid() = recipient_id or auth.uid() = requester_id);
+
+-- Friends
+create policy "friends_read" on public.friends
+  for select using (auth.uid() = user_id);
+
+create policy "friends_insert" on public.friends
+  for insert with check (auth.uid() = user_id or auth.uid() = friend_id);
+
+create policy "friends_delete" on public.friends
+  for delete using (auth.uid() = user_id or auth.uid() = friend_id);

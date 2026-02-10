@@ -345,6 +345,21 @@ select {
   border-bottom: 1px solid rgba(31, 44, 69, 0.6);
 }
 
+.friend-results {
+  display: grid;
+  gap: 8px;
+}
+
+.friend-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #0e1a30;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
 .card-title {
   margin: 0;
   font-family: "Space Grotesk", sans-serif;

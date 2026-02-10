@@ -1,5 +1,5 @@
 ﻿import { supabase } from "./client";
-import type { Rating, Restaurant, Space, SpaceInvite, UserProfile } from "../types";
+import type { Friend, FriendRequest, Rating, Restaurant, Space, SpaceInvite, UserProfile } from "../types";
 
 export async function getUserProfile(id: string): Promise<UserProfile | null> {
   const { data, error } = await supabase.from("users").select("*").eq("id", id).maybeSingle();
@@ -63,6 +63,116 @@ export async function createSpaceInvite(spaceId: string, email: string, invitedB
 export async function deleteSpaceInvite(inviteId: string) {
   const { error } = await supabase.from("space_invites").delete().eq("id", inviteId);
   if (error) throw error;
+}
+
+export async function searchUserByDisplayName(name: string) {
+  const { data, error } = await supabase
+    .from("users")
+    .select("id, display_name, email, photo_url")
+    .ilike("display_name", name);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createFriendRequest(requesterId: string, recipientId: string) {
+  const { error } = await supabase.from("friend_requests").insert({
+    requester_id: requesterId,
+    recipient_id: recipientId,
+    status: "pending"
+  });
+  if (!error) return;
+  if (error.code !== "23505") throw error;
+  const { error: updateError } = await supabase
+    .from("friend_requests")
+    .update({ status: "pending" })
+    .eq("requester_id", requesterId)
+    .eq("recipient_id", recipientId)
+    .eq("status", "declined");
+  if (updateError) throw updateError;
+}
+
+export async function listIncomingFriendRequests(userId: string): Promise<FriendRequest[]> {
+  const { data, error } = await supabase
+    .from("friend_requests")
+    .select("*")
+    .eq("recipient_id", userId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listOutgoingFriendRequests(userId: string): Promise<FriendRequest[]> {
+  const { data, error } = await supabase
+    .from("friend_requests")
+    .select("*")
+    .eq("requester_id", userId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function respondToFriendRequest(requestId: string, status: "accepted" | "declined") {
+  if (status === "declined") {
+    const { error } = await supabase.from("friend_requests").delete().eq("id", requestId);
+    if (error) throw error;
+    return;
+  }
+  const { error } = await supabase.from("friend_requests").update({ status }).eq("id", requestId);
+  if (error) throw error;
+}
+
+export async function listFriends(userId: string): Promise<Friend[]> {
+  const { data, error } = await supabase
+    .from("friends")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listOwnedSpaces(userId: string): Promise<Space[]> {
+  const { data, error } = await supabase.from("spaces").select("*").eq("created_by", userId);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function addSpaceMember(spaceId: string, userId: string) {
+  const { error } = await supabase.from("space_members").upsert(
+    {
+      space_id: spaceId,
+      user_id: userId,
+      role: "member"
+    },
+    { onConflict: "space_id,user_id" }
+  );
+  if (error) throw error;
+}
+
+export async function addFriendPair(userId: string, friendId: string) {
+  const { error } = await supabase.from("friends").insert([
+    { user_id: userId, friend_id: friendId },
+    { user_id: friendId, friend_id: userId }
+  ]);
+  if (error) throw error;
+}
+
+export async function removeFriendPair(userId: string, friendId: string) {
+  const { error: firstError } = await supabase
+    .from("friends")
+    .delete()
+    .eq("user_id", userId)
+    .eq("friend_id", friendId);
+  if (firstError) throw firstError;
+
+  const { error: secondError } = await supabase
+    .from("friends")
+    .delete()
+    .eq("user_id", friendId)
+    .eq("friend_id", userId);
+  if (secondError) throw secondError;
 }
 
 export async function updateSpace(id: string, name: string) {
