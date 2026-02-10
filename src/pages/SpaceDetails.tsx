@@ -385,9 +385,12 @@ export function SpaceDetailsPage() {
                       </div>
                       {list.map((rating) => (
                         <div key={rating.id} className="space-rating-row">
-                          <span>{rating.display_name_snapshot}</span>
+                          <span className="rating-user">{rating.display_name_snapshot}</span>
                           {categories.map((c) => (
-                            <span key={c.key}>{rating[c.key] ?? "-"}</span>
+                            <span key={c.key} className="rating-cell">
+                              <span className="rating-label">{t(c.labelKey as never)}</span>
+                              <span className="rating-score">{rating[c.key] ?? "-"}</span>
+                            </span>
                           ))}
                         </div>
                       ))}
