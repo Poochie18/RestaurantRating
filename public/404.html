@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function () {
+        var path = window.location.pathname;
+        var search = window.location.search || "";
+        var hash = window.location.hash || "";
+        var segments = path.split("/").filter(Boolean);
+        var base = segments.length > 0 ? "/" + segments[0] + "/" : "/";
+        var relativePath = "/" + segments.slice(1).join("/");
+        if (relativePath === "/") relativePath = "";
+
+        var destination = base + "?p=" + encodeURIComponent(relativePath + search + hash);
+        window.location.replace(destination);
+      })();
+    </script>
+    <title>Redirecting...</title>
+  </head>
+  <body></body>
+</html>

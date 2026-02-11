@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        var redirectPath = params.get("p");
+        if (!redirectPath) return;
+
+        var cleanPath = redirectPath.startsWith("/") ? redirectPath : "/" + redirectPath;
+        var basePath = window.location.pathname.replace(/\/+$/, "");
+        var nextPath = (basePath + cleanPath).replace(/\/{2,}/g, "/");
+        window.history.replaceState(null, "", nextPath);
+      })();
+    </script>
     <title>Restaurant Rater</title>
   </head>
   <body>
