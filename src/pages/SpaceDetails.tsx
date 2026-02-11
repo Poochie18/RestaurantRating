@@ -2,14 +2,18 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Modal } from "../components/Modal";
 import { useLanguage } from "../app/LanguageProvider";
+import { supabase } from "../supabase/client";
 import {
+  addFriendToSpace,
   createRestaurant,
-  createSpaceInvite,
   deleteRestaurant,
   deleteSpace,
   getSpace,
+  listFriendUsers,
   listRatingsForRestaurants,
+  listSpaceMembersWithUsers,
   listSpaceRestaurants,
+  removeSpaceMember,
   updateRestaurant,
   updateSpace,
   upsertRating
@@ -31,6 +35,8 @@ const categories: { key: RatingCategory; labelKey: string }[] = [
 const emptyRestaurant = { name: "", location: "" };
 
 type SortKey = "name" | "avg" | "newest";
+type UserMini = { id: string; display_name: string; email: string };
+type SpaceMemberView = { user_id: string; role: "owner" | "member"; user: UserMini | null };
 
 export function SpaceDetailsPage() {
   const { id } = useParams();
@@ -56,7 +62,8 @@ export function SpaceDetailsPage() {
   const [editingRestaurant, setEditingRestaurant] = useState<Restaurant | null>(null);
   const [ratingRestaurant, setRatingRestaurant] = useState<Restaurant | null>(null);
   const [spaceName, setSpaceName] = useState("");
-  const [inviteEmail, setInviteEmail] = useState("");
+  const [members, setMembers] = useState<SpaceMemberView[]>([]);
+  const [friends, setFriends] = useState<UserMini[]>([]);
 
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("avg");
@@ -86,10 +93,68 @@ export function SpaceDetailsPage() {
     }
   };
 
+  const loadMembers = async () => {
+    if (!id) return;
+    try {
+      const data = await listSpaceMembersWithUsers(id);
+      setMembers(data);
+    } catch {
+      setMembers([]);
+    }
+  };
+
+  const loadFriends = async () => {
+    if (!user) return;
+    try {
+      const data = await listFriendUsers(user.id);
+      setFriends(data);
+    } catch {
+      setFriends([]);
+    }
+  };
+
   useEffect(() => {
     loadSpace();
     loadRestaurants();
-  }, [id]);
+    loadMembers();
+    loadFriends();
+  }, [id, user]);
+
+  useEffect(() => {
+    if (!id || !user) return;
+    let active = true;
+    const refresh = () => {
+      if (!active) return;
+      loadSpace();
+      loadRestaurants();
+      loadMembers();
+    };
+
+    const channel = supabase
+      .channel(`space-details-${id}-${user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "space_members", filter: `space_id=eq.${id}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "restaurants", filter: `space_id=eq.${id}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "spaces", filter: `id=eq.${id}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "ratings" }, refresh)
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") refresh();
+      });
+
+    const interval = window.setInterval(refresh, 8000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisibility);
+      supabase.removeChannel(channel);
+    };
+  }, [id, user]);
 
   const ratingsByRestaurant = useMemo(() => {
     const map = new Map<string, Rating[]>();
@@ -212,18 +277,47 @@ export function SpaceDetailsPage() {
     }
   };
 
-  const handleInvite = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!user || !id) return;
-    if (!inviteEmail.trim()) return;
+  const handleLeaveSpace = async () => {
+    if (!id || !user || isOwner) return;
+    const confirmed = window.confirm(t("leaveSpaceConfirm"));
+    if (!confirmed) return;
     setSaving(true);
+    setError("");
     try {
-      await createSpaceInvite(id, inviteEmail.trim().toLowerCase(), user.id);
-      setInviteEmail("");
-      setInviteOpen(false);
-      await loadInvites();
+      await removeSpaceMember(id, user.id);
+      navigate("/app");
     } catch {
-      setError("Failed to send invite.");
+      setError(t("leaveSpaceFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddFriend = async (friendId: string) => {
+    if (!user || !id) return;
+    setSaving(true);
+    setError("");
+    try {
+      await addFriendToSpace(user.id, friendId, id);
+      await loadMembers();
+      await loadFriends();
+    } catch {
+      setError(t("friendAddToSpaceFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string) => {
+    if (!id || !isOwner) return;
+    setSaving(true);
+    setError("");
+    try {
+      await removeSpaceMember(id, memberId);
+      await loadMembers();
+      await loadFriends();
+    } catch {
+      setError(t("spaceMemberRemoveFailed"));
     } finally {
       setSaving(false);
     }
@@ -256,6 +350,13 @@ export function SpaceDetailsPage() {
     }
   };
 
+  const isOwner = Boolean(user && space && space.created_by === user.id);
+  const memberIds = useMemo(() => new Set(members.map((member) => member.user_id)), [members]);
+  const addableFriends = useMemo(
+    () => friends.filter((friend) => !memberIds.has(friend.id)),
+    [friends, memberIds]
+  );
+
   if (loading) {
     return <div className="page-center">{t("loading")}</div>;
   }
@@ -270,27 +371,43 @@ export function SpaceDetailsPage() {
           <button className="btn" onClick={() => setAddOpen(true)}>
             {t("addRestaurant")}
           </button>
-          <button className="btn btn-ghost" onClick={() => setInviteOpen(true)}>
-            {t("inviteFriends")}
-          </button>
+          {isOwner && (
+            <button className="btn btn-ghost" onClick={() => setInviteOpen(true)}>
+              {t("spaceMembersButton")}
+            </button>
+          )}
           <div className="user-menu">
             <button className="btn btn-ghost" onClick={() => setSettingsOpen((prev) => !prev)}>
               ⋯
             </button>
             {settingsOpen && (
               <div className="menu">
-                <button className="menu-item" onClick={() => {
-                  setSettingsOpen(false);
-                  setEditOpen(true);
-                }}>
-                  {t("editSpace")}
-                </button>
-                <button className="menu-item" onClick={() => {
-                  setSettingsOpen(false);
-                  setDeleteOpen(true);
-                }}>
-                  {t("deleteSpace")}
-                </button>
+                {isOwner ? (
+                  <>
+                    <button className="menu-item" onClick={() => {
+                      setSettingsOpen(false);
+                      setEditOpen(true);
+                    }}>
+                      {t("editSpace")}
+                    </button>
+                    <button className="menu-item" onClick={() => {
+                      setSettingsOpen(false);
+                      setDeleteOpen(true);
+                    }}>
+                      {t("deleteSpace")}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="menu-item"
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      void handleLeaveSpace();
+                    }}
+                  >
+                    {t("leaveSpace")}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -460,21 +577,49 @@ export function SpaceDetailsPage() {
         </div>
       </Modal>
 
-      <Modal title={t("inviteFriends")} open={inviteOpen} onClose={() => setInviteOpen(false)}>
-        <form className="form" onSubmit={handleInvite}>
-          <label className="field">
-            <span>{t("inviteEmail")}</span>
-            <input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} />
-          </label>
-          <div className="form-footer">
-            <button type="button" className="btn btn-ghost" onClick={() => setInviteOpen(false)}>
-              {t("cancel")}
-            </button>
-            <button type="submit" className="btn" disabled={saving}>
-              {saving ? t("loading") : t("inviteSend")}
-            </button>
-          </div>
-        </form>
+      <Modal title={t("spaceMembersTitle")} open={inviteOpen} onClose={() => setInviteOpen(false)}>
+        <div className="form">
+          <h4 className="modal-section-title">{t("spaceMembersCurrent")}</h4>
+          {members.length ? (
+            <div className="member-list-compact">
+              {members.map((member) => (
+                <div key={member.user_id} className="member-chip">
+                  <span className="member-name">{member.user?.display_name || member.user?.email || "User"}</span>
+                  <div className="inline-actions">
+                    {isOwner && member.role !== "owner" && (
+                      <button
+                        className="icon-btn danger"
+                        onClick={() => handleRemoveMember(member.user_id)}
+                        disabled={saving}
+                        aria-label={t("delete")}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">{t("spaceMembersEmpty")}</p>
+          )}
+
+          <h4 className="modal-section-title">{t("spaceMembersAddFriends")}</h4>
+          {addableFriends.length ? (
+            <div className="invite-list invite-list-clean">
+              {addableFriends.map((friend) => (
+                <div key={friend.id} className="invite-row">
+                  <span>{friend.display_name || friend.email}</span>
+                  <button className="btn btn-ghost" onClick={() => handleAddFriend(friend.id)} disabled={saving}>
+                    {t("friendAddToSpace")}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">{t("friendsEmpty")}</p>
+          )}
+        </div>
       </Modal>
 
       <Modal title={t("ratingTitle")} open={rateOpen} onClose={() => setRateOpen(false)}>

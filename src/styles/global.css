@@ -81,6 +81,27 @@ select {
   border-bottom: 2px solid transparent;
 }
 
+.nav-link-with-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.friends-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ff6b6b;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .nav a.active {
   border-color: var(--accent);
 }
@@ -343,6 +364,48 @@ select {
   align-items: center;
   padding: 8px 0;
   border-bottom: 1px solid rgba(31, 44, 69, 0.6);
+}
+
+.invite-list .invite-row:last-child {
+  border-bottom: none;
+}
+
+.invite-list-clean .invite-row {
+  border-bottom: none;
+  padding: 6px 0;
+}
+
+.modal-section-title {
+  margin: 2px 0 6px;
+}
+
+.member-list-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.member-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #0e1a30;
+}
+
+.member-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.member-role {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
 }
 
 .friend-results {
@@ -642,6 +705,22 @@ select {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+}
+
+.modal-close {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--ink);
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+}
+
+.modal-close:hover {
+  background: rgba(74, 168, 255, 0.12);
 }
 
 .modal-body.compact {

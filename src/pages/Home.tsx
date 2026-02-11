@@ -2,6 +2,7 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthProvider";
 import { createSpace, listSpaces } from "../supabase/db";
+import { supabase } from "../supabase/client";
 import { Modal } from "../components/Modal";
 import type { Space } from "../types";
 import { useLanguage } from "../app/LanguageProvider";
@@ -13,6 +14,7 @@ export function HomePage() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [spaces, setSpaces] = useState<Space[]>([]);
+  const [owners, setOwners] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
@@ -24,8 +26,19 @@ export function HomePage() {
     try {
       const data = await listSpaces(user.id);
       setSpaces(data);
+      const ownerIds = Array.from(new Set(data.map((space) => space.created_by).filter((id) => id !== user.id)));
+      if (!ownerIds.length) {
+        setOwners({});
+      } else {
+        const { data: users } = await supabase.from("users").select("id, display_name").in("id", ownerIds);
+        const map: Record<string, string> = {};
+        (users ?? []).forEach((row: { id: string; display_name: string }) => {
+          map[row.id] = row.display_name;
+        });
+        setOwners(map);
+      }
     } catch {
-      setError("");
+      setError("Failed to load spaces.");
     } finally {
       setLoading(false);
     }
@@ -33,6 +46,38 @@ export function HomePage() {
 
   useEffect(() => {
     loadSpaces();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    const refresh = () => {
+      if (!active) return;
+      loadSpaces();
+    };
+
+    const channel = supabase
+      .channel(`home-spaces-${user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "space_members" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "spaces" }, refresh)
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") refresh();
+      });
+
+    const interval = window.setInterval(refresh, 8000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisibility);
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
   const handleSubmit = async (event: FormEvent) => {
@@ -87,7 +132,11 @@ export function HomePage() {
                 <div className="card-body">
                   <div>
                     <h3 className="card-title">{space.name}</h3>
-                    <p className="muted">{t("privateSpace")}</p>
+                    <p className="muted">
+                      {space.created_by === user?.id
+                        ? t("spaceOwnerYou")
+                        : `${t("spaceOwnerPrefix")} ${owners[space.created_by] || "User"}`}
+                    </p>
                   </div>
                   <span className="pill">{t("openSpace")}</span>
                 </div>

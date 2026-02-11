@@ -1,28 +1,27 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Modal } from "../components/Modal";
 import { useLanguage } from "../app/LanguageProvider";
 import { useAuth } from "../app/AuthProvider";
 import {
-  addFriendPair,
-  addSpaceMember,
-  createFriendRequest,
-  listFriends,
-  listIncomingFriendRequests,
-  listOutgoingFriendRequests,
+  acceptFriendInvite,
+  addFriendToSpace,
+  cancelFriendInvite,
+  declineFriendInvite,
+  listFriendRelations,
   listOwnedSpaces,
   removeFriendPair,
-  respondToFriendRequest,
-  searchUserByDisplayName
+  searchUserByDisplayName,
+  sendFriendInvite
 } from "../supabase/db";
 import { supabase } from "../supabase/client";
-import type { Friend, FriendRequest, Space } from "../types";
+import type { FriendRelation, Space } from "../types";
+
+type UserSearchResult = { id: string; display_name: string; email: string };
 
 export function FriendsPage() {
   const { t } = useLanguage();
   const { user } = useAuth();
-  const [friends, setFriends] = useState<Friend[]>([]);
-  const [incoming, setIncoming] = useState<FriendRequest[]>([]);
-  const [outgoing, setOutgoing] = useState<FriendRequest[]>([]);
+  const [relations, setRelations] = useState<FriendRelation[]>([]);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState("");
@@ -30,40 +29,54 @@ export function FriendsPage() {
   const [loading, setLoading] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
-  const [searchResults, setSearchResults] = useState<{ id: string; display_name: string; email: string }[]>([]);
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [spaceModalOpen, setSpaceModalOpen] = useState(false);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [selectedSpace, setSelectedSpace] = useState("");
   const [spaceTarget, setSpaceTarget] = useState<string | null>(null);
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<string | null>(null);
+
+  const relationByUser = useMemo(
+    () => Object.fromEntries(relations.map((relation) => [relation.other_user_id, relation])),
+    [relations]
+  );
+
+  const incoming = useMemo(
+    () => relations.filter((relation) => relation.state === "incoming_pending"),
+    [relations]
+  );
+  const outgoing = useMemo(
+    () => relations.filter((relation) => relation.state === "outgoing_pending"),
+    [relations]
+  );
+  const friends = useMemo(
+    () => relations.filter((relation) => relation.state === "friends"),
+    [relations]
+  );
 
   const loadAll = async () => {
     if (!user) return;
-    const [friendsData, incomingData, outgoingData] = await Promise.all([
-      listFriends(user.id),
-      listIncomingFriendRequests(user.id),
-      listOutgoingFriendRequests(user.id)
-    ]);
-    setFriends(friendsData);
-    setIncoming(incomingData);
-    setOutgoing(outgoingData);
+    const relationData = await listFriendRelations(user.id);
+    setRelations(relationData);
 
     const ids = new Set<string>();
-    friendsData.forEach((f) => ids.add(f.friend_id));
-    incomingData.forEach((r) => ids.add(r.requester_id));
-    outgoingData.forEach((r) => ids.add(r.recipient_id));
-
-    if (ids.size) {
-      const { data } = await supabase
-        .from("users")
-        .select("id, display_name")
-        .in("id", Array.from(ids));
-      const map: Record<string, string> = {};
-      (data ?? []).forEach((row: { id: string; display_name: string }) => {
-        map[row.id] = row.display_name;
-      });
-      setNames(map);
+    relationData.forEach((relation) => ids.add(relation.other_user_id));
+    if (!ids.size) {
+      setNames({});
+      return;
     }
+
+    const { data } = await supabase
+      .from("users")
+      .select("id, display_name")
+      .in("id", Array.from(ids));
+    const map: Record<string, string> = {};
+    (data ?? []).forEach((row: { id: string; display_name: string }) => {
+      map[row.id] = row.display_name;
+    });
+    setNames(map);
   };
 
   const loadSpaces = async () => {
@@ -82,45 +95,53 @@ export function FriendsPage() {
 
   useEffect(() => {
     if (!user) return;
+    let active = true;
+
+    const refreshAll = () => {
+      if (!active) return;
+      loadAll();
+    };
+
     const channel = supabase
-      .channel("friends-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "friend_requests" },
-        () => loadAll()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "friends" },
-        () => loadAll()
-      )
-      .subscribe();
+      .channel(`friends-page-${user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "friendships" }, refreshAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "friend_requests" }, refreshAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "friends" }, refreshAll)
+      .on("postgres_changes", { event: "*", schema: "public", table: "users" }, refreshAll)
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") refreshAll();
+      });
+
+    const interval = window.setInterval(refreshAll, 8000);
 
     return () => {
+      active = false;
+      window.clearInterval(interval);
       supabase.removeChannel(channel);
     };
   }, [user]);
 
-  const handleSearch = async () => {
-    if (!user) return;
-    setError("");
-    setMessage("");
-    setLoading(true);
-    try {
-      const results = await searchUserByDisplayName(query.trim());
-      const filtered = results.filter((r) => r.id !== user.id);
-      if (!filtered.length) {
-        setError(t("friendNotFound"));
-        return;
-      }
-      setSearchResults(filtered);
-      setSelectedUser(filtered.length === 1 ? filtered[0].id : null);
-    } catch {
-      setError(t("friendNotFound"));
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    if (!user || !spaceModalOpen) return;
+    let active = true;
+
+    const refreshSpaces = () => {
+      if (!active) return;
+      loadSpaces();
+    };
+
+    const channel = supabase
+      .channel(`spaces-page-${user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "spaces", filter: `created_by=eq.${user.id}` }, refreshSpaces)
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") refreshSpaces();
+      });
+
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
+  }, [user, spaceModalOpen]);
 
   const handleSend = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -134,7 +155,7 @@ export function FriendsPage() {
       setLoading(true);
       try {
         const fetched = await searchUserByDisplayName(query.trim());
-        results = fetched.filter((r) => r.id !== user.id);
+        results = fetched.filter((result) => result.id !== user.id);
         if (!results.length) {
           setError(t("friendNotFound"));
           return;
@@ -149,15 +170,31 @@ export function FriendsPage() {
       }
     }
 
-    const targetId = selectedUser ?? (results.length === 1 ? results[0].id : null);
+    const normalizedQuery = query.trim().toLowerCase();
+    const exactMatch = results.find((result) => result.display_name.trim().toLowerCase() === normalizedQuery);
+    const targetId = selectedUser ?? exactMatch?.id ?? (results.length === 1 ? results[0].id : null);
     if (!targetId) {
       setError(t("friendSelectUser"));
       return;
     }
 
+    const existing = relationByUser[targetId];
+    if (existing?.state === "friends") {
+      setMessage(t("friendAlreadyFriends"));
+      return;
+    }
+    if (existing?.state === "outgoing_pending") {
+      setMessage(t("friendAlreadyPendingOutgoing"));
+      return;
+    }
+    if (existing?.state === "incoming_pending") {
+      setMessage(t("friendIncomingExists"));
+      return;
+    }
+
     setLoading(true);
     try {
-      await createFriendRequest(user.id, targetId);
+      await sendFriendInvite(user.id, targetId);
       setMessage(t("friendRequestSent"));
       setQuery("");
       setSearchResults([]);
@@ -171,51 +208,79 @@ export function FriendsPage() {
     }
   };
 
-  const handleAccept = async (req: FriendRequest) => {
+  const handleAccept = async (fromId: string) => {
     if (!user) return;
-    await respondToFriendRequest(req.id, "accepted");
-    await addFriendPair(req.requester_id, req.recipient_id);
-    await loadAll();
-  };
-
-  const handleDecline = async (req: FriendRequest) => {
+    setError("");
     try {
-      await respondToFriendRequest(req.id, "declined");
+      await acceptFriendInvite(user.id, fromId);
       await loadAll();
     } catch {
       setError(t("friendRequestFailed"));
     }
   };
 
-  const handleRemove = async (friendId: string) => {
+  const handleDecline = async (fromId: string) => {
     if (!user) return;
-    await removeFriendPair(user.id, friendId);
-    await loadAll();
+    setError("");
+    try {
+      await declineFriendInvite(user.id, fromId);
+      await loadAll();
+    } catch {
+      setError(t("friendRequestFailed"));
+    }
+  };
+
+  const handleCancelOutgoing = async (toId: string) => {
+    if (!user) return;
+    setError("");
+    try {
+      await cancelFriendInvite(user.id, toId);
+      await loadAll();
+    } catch {
+      setError(t("friendRequestFailed"));
+    }
+  };
+
+  const openRemoveConfirm = (friendId: string) => {
+    setRemoveTarget(friendId);
+    setRemoveConfirmOpen(true);
+    setMenuOpen(null);
+  };
+
+  const handleConfirmRemove = async () => {
+    if (!user || !removeTarget) return;
+    setError("");
+    try {
+      await removeFriendPair(user.id, removeTarget);
+      await loadAll();
+      setRemoveConfirmOpen(false);
+      setRemoveTarget(null);
+      setMessage(t("friendRemoved"));
+    } catch {
+      setError(t("friendRemoveFailed"));
+    }
   };
 
   const handleAddToSpace = async () => {
-    if (!spaceTarget || !selectedSpace) return;
-    await addSpaceMember(selectedSpace, spaceTarget);
-    setSpaceModalOpen(false);
-    setSelectedSpace("");
-    setSpaceTarget(null);
+    if (!spaceTarget || !selectedSpace || !user) return;
+    setError("");
+    try {
+      await addFriendToSpace(user.id, spaceTarget, selectedSpace);
+      setSpaceModalOpen(false);
+      setSelectedSpace("");
+      setSpaceTarget(null);
+      setMessage(t("friendAddedToSpace"));
+    } catch {
+      setError(t("friendAddToSpaceFailed"));
+    }
   };
-
-  const friendsList = useMemo(
-    () =>
-      friends.map((f) => ({
-        id: f.friend_id,
-        name: names[f.friend_id] || "User"
-      })),
-    [friends, names]
-  );
 
   return (
     <div className="container">
       <div className="page-header">
         <div>
           <h1>{t("friendsTitle")}</h1>
-          <p className="muted">{t("friends")}</p>
+          <p className="muted">{t("friendsPageSubtitle")}</p>
         </div>
         <button className="btn" onClick={() => setOpen(true)}>
           {t("addFriend")}
@@ -229,14 +294,14 @@ export function FriendsPage() {
         <div className="card">
           <h3>{t("friendInvites")}</h3>
           <div className="invite-list">
-            {incoming.map((req) => (
-              <div key={req.id} className="invite-row">
-                <span>{names[req.requester_id] || "User"}</span>
+            {incoming.map((relation) => (
+              <div key={`in-${relation.other_user_id}`} className="invite-row">
+                <span>{names[relation.other_user_id] || "User"}</span>
                 <div className="inline-actions">
-                  <button className="btn btn-ghost" onClick={() => handleDecline(req)}>
+                  <button className="btn btn-ghost" onClick={() => handleDecline(relation.other_user_id)}>
                     {t("friendDecline")}
                   </button>
-                  <button className="btn" onClick={() => handleAccept(req)}>
+                  <button className="btn" onClick={() => handleAccept(relation.other_user_id)}>
                     {t("friendAccept")}
                   </button>
                 </div>
@@ -250,10 +315,14 @@ export function FriendsPage() {
         <div className="card space-invites">
           <h3>{t("outgoingTitle")}</h3>
           <div className="invite-list">
-            {outgoing.map((req) => (
-              <div key={req.id} className="invite-row">
-                <span>{names[req.recipient_id] || "User"}</span>
-                <span className="muted">pending</span>
+            {outgoing.map((relation) => (
+              <div key={`out-${relation.other_user_id}`} className="invite-row">
+                <span>{names[relation.other_user_id] || "User"}</span>
+                <div className="inline-actions">
+                  <button className="btn btn-ghost" onClick={() => handleCancelOutgoing(relation.other_user_id)}>
+                    {t("cancel")}
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -261,25 +330,29 @@ export function FriendsPage() {
       )}
 
       <div className="card space-invites">
-        <h3>{t("friendsTitle")}</h3>
-        {friendsList.length ? (
+        <h3>{t("friendsPageTitle")}</h3>
+        {friends.length ? (
           <div className="invite-list">
-            {friendsList.map((friend) => (
-              <div key={friend.id} className="invite-row">
-                <span>{friend.name}</span>
+            {friends.map((relation) => (
+              <div key={`fr-${relation.other_user_id}`} className="invite-row">
+                <span>{names[relation.other_user_id] || "User"}</span>
                 <div className="user-menu">
-                  <button className="btn btn-ghost" onClick={() => setMenuOpen(menuOpen === friend.id ? null : friend.id)}>
-                    ⋯
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => setMenuOpen(menuOpen === relation.other_user_id ? null : relation.other_user_id)}
+                  >
+                    ...
                   </button>
-                  {menuOpen === friend.id && (
+                  {menuOpen === relation.other_user_id && (
                     <div className="menu">
-                      <button className="menu-item" onClick={() => handleRemove(friend.id)}>
+                      <button className="menu-item" onClick={() => openRemoveConfirm(relation.other_user_id)}>
                         {t("friendRemove")}
                       </button>
                       <button
                         className="menu-item"
                         onClick={() => {
-                          setSpaceTarget(friend.id);
+                          setMenuOpen(null);
+                          setSpaceTarget(relation.other_user_id);
                           setSpaceModalOpen(true);
                         }}
                       >
@@ -300,20 +373,30 @@ export function FriendsPage() {
         <form className="form" onSubmit={handleSend}>
           <label className="field">
             <span>{t("friendSearchLabel")}</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} required />
+            <input
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setSearchResults([]);
+                setSelectedUser(null);
+              }}
+              required
+            />
           </label>
           {searchResults.length > 1 && (
             <div className="friend-results">
-              {searchResults.map((res) => (
-                <label key={res.id} className="friend-result">
+              {searchResults.map((result) => (
+                <label key={result.id} className="friend-result">
                   <input
                     type="radio"
                     name="friend"
-                    value={res.id}
-                    checked={selectedUser === res.id}
-                    onChange={() => setSelectedUser(res.id)}
+                    value={result.id}
+                    checked={selectedUser === result.id}
+                    onChange={() => setSelectedUser(result.id)}
                   />
-                  <span>{res.display_name} ({res.email})</span>
+                  <span>
+                    {result.display_name} ({result.email})
+                  </span>
                 </label>
               ))}
             </div>
@@ -348,6 +431,20 @@ export function FriendsPage() {
             </button>
             <button className="btn" onClick={handleAddToSpace} disabled={!selectedSpace}>
               {t("save")}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal title={t("friendRemoveConfirmTitle")} open={removeConfirmOpen} onClose={() => setRemoveConfirmOpen(false)}>
+        <div className="modal-body compact">
+          <p className="muted">{t("friendRemoveConfirmText")}</p>
+          <div className="form-footer">
+            <button className="btn btn-ghost" onClick={() => setRemoveConfirmOpen(false)}>
+              {t("cancel")}
+            </button>
+            <button className="btn btn-danger" onClick={handleConfirmRemove}>
+              {t("friendRemove")}
             </button>
           </div>
         </div>
