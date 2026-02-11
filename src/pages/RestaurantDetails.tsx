@@ -27,6 +27,7 @@ export function RestaurantDetailsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [userRating, setUserRating] = useState<Rating | null>(null);
+  const [brokenRatingAvatars, setBrokenRatingAvatars] = useState<Record<string, boolean>>({});
 
   const loadRatings = async (restaurantId: string) => {
     const data = await listRatings(restaurantId);
@@ -162,8 +163,19 @@ export function RestaurantDetailsPage() {
               return (
                 <div key={rating.id} className="rating-row">
                   <div className="avatar small">
-                    {rating.photo_url_snapshot ? (
-                      <img src={rating.photo_url_snapshot} alt={name} />
+                    {rating.photo_url_snapshot &&
+                    /^https?:\/\//i.test(rating.photo_url_snapshot) &&
+                    !brokenRatingAvatars[rating.id] ? (
+                      <img
+                        src={rating.photo_url_snapshot}
+                        alt={name}
+                        onError={() =>
+                          setBrokenRatingAvatars((prev) => ({
+                            ...prev,
+                            [rating.id]: true
+                          }))
+                        }
+                      />
                     ) : (
                       <span>{initial}</span>
                     )}

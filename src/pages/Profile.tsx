@@ -1,4 +1,4 @@
-﻿import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { useAuth } from "../app/AuthProvider";
 import { useLanguage } from "../app/LanguageProvider";
 import { updateDisplayName } from "../supabase/auth";
@@ -12,6 +12,7 @@ export function ProfilePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [avatarBroken, setAvatarBroken] = useState(false);
 
   if (!user) return null;
 
@@ -55,6 +56,11 @@ export function ProfilePage() {
 
   const displayInitial = (profile?.display_name || user.user_metadata?.display_name || "U").trim()[0] || "U";
   const avatar = profile?.photo_url || null;
+  const avatarUrl = avatar && /^https?:\/\//i.test(avatar) ? avatar : null;
+
+  useEffect(() => {
+    setAvatarBroken(false);
+  }, [avatarUrl]);
 
   return (
     <div className="container">
@@ -66,8 +72,8 @@ export function ProfilePage() {
       </div>
       <div className="card profile-card">
         <div className="profile-avatar">
-          {avatar ? (
-            <img src={avatar} alt="Avatar" />
+          {avatarUrl && !avatarBroken ? (
+            <img src={avatarUrl} alt="Avatar" onError={() => setAvatarBroken(true)} />
           ) : (
             <span>{displayInitial}</span>
           )}
@@ -95,3 +101,4 @@ export function ProfilePage() {
     </div>
   );
 }
+

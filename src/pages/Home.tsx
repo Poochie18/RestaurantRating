@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, type FormEvent } from "react";
+﻿import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthProvider";
 import { createSpace, listSpaces } from "../supabase/db";
@@ -8,6 +8,54 @@ import type { Space } from "../types";
 import { useLanguage } from "../app/LanguageProvider";
 
 const emptyForm = { name: "" };
+const HOME_CACHE_PREFIX = "home-cache-v1:";
+
+type HomeCache = {
+  spaces: Space[];
+  owners: Record<string, string>;
+  spacesSig: string;
+  ownersSig: string;
+};
+
+function readHomeCache(userId: string): HomeCache | null {
+  try {
+    const raw = window.localStorage.getItem(`${HOME_CACHE_PREFIX}${userId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as HomeCache;
+    if (!parsed || !Array.isArray(parsed.spaces) || typeof parsed.owners !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeHomeCache(userId: string, payload: HomeCache) {
+  try {
+    window.localStorage.setItem(`${HOME_CACHE_PREFIX}${userId}`, JSON.stringify(payload));
+  } catch {
+    // Best-effort cache.
+  }
+}
+
+function mergeSpaces(prev: Space[], next: Space[]): Space[] {
+  const prevById = new Map(prev.map((item) => [item.id, item]));
+  let changed = prev.length !== next.length;
+  const merged = next.map((item) => {
+    const existing = prevById.get(item.id);
+    if (
+      existing &&
+      existing.name === item.name &&
+      existing.created_by === item.created_by &&
+      existing.created_at === item.created_at &&
+      existing.updated_at === item.updated_at
+    ) {
+      return existing;
+    }
+    changed = true;
+    return item;
+  });
+  return changed ? merged : prev;
+}
 
 export function HomePage() {
   const { user } = useAuth();
@@ -20,23 +68,62 @@ export function HomePage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const spacesSigRef = useRef("");
+  const ownersSigRef = useRef("");
 
   const loadSpaces = async () => {
     if (!user) return;
     try {
       const data = await listSpaces(user.id);
-      setSpaces(data);
+      const nextSpacesSig = data
+        .map((space) => `${space.id}|${space.name}|${space.created_by}|${space.updated_at ?? ""}|${space.created_at ?? ""}`)
+        .join("||");
+      let ownersMap: Record<string, string> = owners;
+      if (nextSpacesSig !== spacesSigRef.current) {
+        spacesSigRef.current = nextSpacesSig;
+        setSpaces((prev) => mergeSpaces(prev, data));
+      }
       const ownerIds = Array.from(new Set(data.map((space) => space.created_by).filter((id) => id !== user.id)));
       if (!ownerIds.length) {
-        setOwners({});
+        if (ownersSigRef.current !== "") {
+          ownersSigRef.current = "";
+          ownersMap = {};
+          setOwners(ownersMap);
+        }
       } else {
         const { data: users } = await supabase.from("users").select("id, display_name").in("id", ownerIds);
         const map: Record<string, string> = {};
         (users ?? []).forEach((row: { id: string; display_name: string }) => {
           map[row.id] = row.display_name;
         });
-        setOwners(map);
+        const nextOwnersSig = Object.entries(map)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([id, name]) => `${id}|${name}`)
+          .join("||");
+        if (nextOwnersSig !== ownersSigRef.current) {
+          ownersSigRef.current = nextOwnersSig;
+          ownersMap = map;
+          setOwners((prev) => {
+            const prevKeys = Object.keys(prev);
+            const nextKeys = Object.keys(map);
+            if (
+              prevKeys.length === nextKeys.length &&
+              nextKeys.every((key) => prev[key] === map[key])
+            ) {
+              return prev;
+            }
+            return map;
+          });
+        } else {
+          ownersMap = owners;
+        }
       }
+      writeHomeCache(user.id, {
+        spaces: data,
+        owners: ownersMap,
+        spacesSig: spacesSigRef.current,
+        ownersSig: ownersSigRef.current
+      });
     } catch {
       setError("Failed to load spaces.");
     } finally {
@@ -45,6 +132,15 @@ export function HomePage() {
   };
 
   useEffect(() => {
+    if (!user) return;
+    const cached = readHomeCache(user.id);
+    if (cached) {
+      spacesSigRef.current = cached.spacesSig ?? "";
+      ownersSigRef.current = cached.ownersSig ?? "";
+      setSpaces(cached.spaces ?? []);
+      setOwners(cached.owners ?? {});
+      setLoading(false);
+    }
     loadSpaces();
   }, [user]);
 

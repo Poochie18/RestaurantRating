@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { logout } from "../supabase/auth";
 import { useAuth } from "../app/AuthProvider";
 import { useLanguage } from "../app/LanguageProvider";
@@ -14,6 +14,8 @@ export function Header() {
   const [open, setOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [incomingCount, setIncomingCount] = useState(0);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
+  const [avatarBroken, setAvatarBroken] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -22,7 +24,24 @@ export function Header() {
 
   const displayName = profile?.display_name || user?.user_metadata?.display_name || user?.email || "User";
   const avatar = profile?.photo_url || null;
+  const avatarUrl = avatar && /^https?:\/\//i.test(avatar) ? avatar : null;
   const initials = (displayName.trim()[0] || "U").toUpperCase();
+
+  useEffect(() => {
+    setAvatarBroken(false);
+  }, [avatarUrl]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (userMenuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
 
   useEffect(() => {
     if (!user) {
@@ -95,9 +114,13 @@ export function Header() {
             <span className={`flag flag-uk ${lang === "uk" ? "active" : ""}`} />
             <span className={`flag flag-en ${lang === "en" ? "active" : ""}`} />
           </button>
-          <div className="user-menu">
+          <div className="user-menu" ref={userMenuRef}>
             <button className="avatar" onClick={() => setOpen((prev) => !prev)}>
-              {avatar ? <img src={avatar} alt={displayName} /> : <span>{initials}</span>}
+              {avatarUrl && !avatarBroken ? (
+                <img src={avatarUrl} alt={displayName} onError={() => setAvatarBroken(true)} />
+              ) : (
+                <span>{initials}</span>
+              )}
             </button>
             {open && (
               <div className="menu">
