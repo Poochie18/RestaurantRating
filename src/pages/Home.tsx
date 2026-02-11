@@ -70,15 +70,19 @@ export function HomePage() {
   const [saving, setSaving] = useState(false);
   const spacesSigRef = useRef("");
   const ownersSigRef = useRef("");
+  const inFlightRef = useRef(false);
+  const ownersRef = useRef<Record<string, string>>({});
 
-  const loadSpaces = async () => {
+  const loadSpaces = async (options?: { silent?: boolean }) => {
     if (!user) return;
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     try {
       const data = await listSpaces(user.id);
       const nextSpacesSig = data
         .map((space) => `${space.id}|${space.name}|${space.created_by}|${space.updated_at ?? ""}|${space.created_at ?? ""}`)
         .join("||");
-      let ownersMap: Record<string, string> = owners;
+      let ownersMap: Record<string, string> = ownersRef.current;
       if (nextSpacesSig !== spacesSigRef.current) {
         spacesSigRef.current = nextSpacesSig;
         setSpaces((prev) => mergeSpaces(prev, data));
@@ -88,6 +92,7 @@ export function HomePage() {
         if (ownersSigRef.current !== "") {
           ownersSigRef.current = "";
           ownersMap = {};
+          ownersRef.current = ownersMap;
           setOwners(ownersMap);
         }
       } else {
@@ -103,6 +108,7 @@ export function HomePage() {
         if (nextOwnersSig !== ownersSigRef.current) {
           ownersSigRef.current = nextOwnersSig;
           ownersMap = map;
+          ownersRef.current = ownersMap;
           setOwners((prev) => {
             const prevKeys = Object.keys(prev);
             const nextKeys = Object.keys(map);
@@ -114,8 +120,6 @@ export function HomePage() {
             }
             return map;
           });
-        } else {
-          ownersMap = owners;
         }
       }
       writeHomeCache(user.id, {
@@ -125,8 +129,9 @@ export function HomePage() {
         ownersSig: ownersSigRef.current
       });
     } catch {
-      setError("Failed to load spaces.");
+      if (!options?.silent) setError("Failed to load spaces.");
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
     }
   };
@@ -138,10 +143,13 @@ export function HomePage() {
       spacesSigRef.current = cached.spacesSig ?? "";
       ownersSigRef.current = cached.ownersSig ?? "";
       setSpaces(cached.spaces ?? []);
+      ownersRef.current = cached.owners ?? {};
       setOwners(cached.owners ?? {});
       setLoading(false);
+      void loadSpaces({ silent: true });
+      return;
     }
-    loadSpaces();
+    void loadSpaces();
   }, [user]);
 
   useEffect(() => {
@@ -157,21 +165,17 @@ export function HomePage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "space_members" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "spaces" }, refresh)
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") refresh();
+        if (status === "SUBSCRIBED") void loadSpaces({ silent: true });
       });
 
-    const interval = window.setInterval(refresh, 8000);
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", onVisibility);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      refresh();
+    }, 12000);
 
     return () => {
       active = false;
       window.clearInterval(interval);
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", onVisibility);
       supabase.removeChannel(channel);
     };
   }, [user]);

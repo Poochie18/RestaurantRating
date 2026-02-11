@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useLanguage } from "../app/LanguageProvider";
 import { supabase } from "../supabase/client";
@@ -21,6 +21,46 @@ type MemberRow = {
   user: { id: string; display_name: string; email: string } | null;
 };
 
+const SPACE_STATS_CACHE_PREFIX = "space-stats-cache-v1:";
+
+type SpaceStatsCache = {
+  space: Space | null;
+  restaurants: Restaurant[];
+  ratings: Rating[];
+  members: MemberRow[];
+  spaceSig: string;
+  restaurantsSig: string;
+  ratingsSig: string;
+  membersSig: string;
+};
+
+function readSpaceStatsCache(spaceId: string): SpaceStatsCache | null {
+  try {
+    const raw = window.localStorage.getItem(`${SPACE_STATS_CACHE_PREFIX}${spaceId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SpaceStatsCache;
+    if (
+      !parsed ||
+      !Array.isArray(parsed.restaurants) ||
+      !Array.isArray(parsed.ratings) ||
+      !Array.isArray(parsed.members)
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeSpaceStatsCache(spaceId: string, payload: SpaceStatsCache) {
+  try {
+    window.localStorage.setItem(`${SPACE_STATS_CACHE_PREFIX}${spaceId}`, JSON.stringify(payload));
+  } catch {
+    // Best-effort cache.
+  }
+}
+
 export function SpaceStatisticsPage() {
   const { id } = useParams();
   const { t } = useLanguage();
@@ -31,31 +71,116 @@ export function SpaceStatisticsPage() {
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const spaceSigRef = useRef("");
+  const restaurantsSigRef = useRef("");
+  const ratingsSigRef = useRef("");
+  const membersSigRef = useRef("");
+  const inFlightRef = useRef(false);
 
-  const loadSpaceStatistics = async () => {
+  const toSpaceSig = (value: Space | null) =>
+    value ? `${value.id}|${value.name}|${value.created_by}|${value.updated_at ?? ""}|${value.created_at ?? ""}` : "";
+
+  const toRestaurantsSig = (value: Restaurant[]) =>
+    value
+      .map((item) => `${item.id}|${item.name}|${item.location ?? ""}|${item.updated_at ?? ""}|${item.created_at ?? ""}`)
+      .join("||");
+
+  const toRatingsSig = (value: Rating[]) =>
+    value
+      .map(
+        (item) =>
+          `${item.id}|${item.restaurant_id}|${item.user_id}|${item.overall_avg}|${item.updated_at ?? ""}|${item.created_at ?? ""}`
+      )
+      .join("||");
+
+  const toMembersSig = (value: MemberRow[]) =>
+    value
+      .map((item) => `${item.user_id}|${item.role}|${item.user?.display_name ?? ""}|${item.user?.email ?? ""}`)
+      .join("||");
+
+  const applySpaceStatistics = (payload: { space: Space | null; restaurants: Restaurant[]; ratings: Rating[]; members: MemberRow[] }) => {
+    const nextSpaceSig = toSpaceSig(payload.space);
+    const nextRestaurantsSig = toRestaurantsSig(payload.restaurants);
+    const nextRatingsSig = toRatingsSig(payload.ratings);
+    const nextMembersSig = toMembersSig(payload.members);
+
+    if (nextSpaceSig !== spaceSigRef.current) {
+      spaceSigRef.current = nextSpaceSig;
+      setSpace(payload.space);
+    }
+    if (nextRestaurantsSig !== restaurantsSigRef.current) {
+      restaurantsSigRef.current = nextRestaurantsSig;
+      setRestaurants(payload.restaurants);
+    }
+    if (nextRatingsSig !== ratingsSigRef.current) {
+      ratingsSigRef.current = nextRatingsSig;
+      setRatings(payload.ratings);
+    }
+    if (nextMembersSig !== membersSigRef.current) {
+      membersSigRef.current = nextMembersSig;
+      setMembers(payload.members);
+    }
+
+    if (id) {
+      writeSpaceStatsCache(id, {
+        ...payload,
+        spaceSig: spaceSigRef.current,
+        restaurantsSig: restaurantsSigRef.current,
+        ratingsSig: ratingsSigRef.current,
+        membersSig: membersSigRef.current
+      });
+    }
+  };
+
+  const loadSpaceStatistics = async (options?: { silent?: boolean }) => {
     if (!id) return;
-    setError("");
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    if (!options?.silent) setError("");
     try {
       const [spaceData, restaurantData, memberData] = await Promise.all([
         getSpace(id),
         listSpaceRestaurants(id),
         listSpaceMembersWithUsers(id)
       ]);
-
-      setSpace(spaceData);
-      setRestaurants(restaurantData);
-      setMembers(memberData);
-
       const ratingData = await listRatingsForRestaurants(restaurantData.map((restaurant) => restaurant.id));
-      setRatings(ratingData);
+      applySpaceStatistics({
+        space: spaceData,
+        restaurants: restaurantData,
+        ratings: ratingData,
+        members: memberData
+      });
     } catch {
-      setError(t("statisticsLoadError"));
+      if (!options?.silent) setError(t("statisticsLoadError"));
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    if (!id) return;
+    spaceSigRef.current = "";
+    restaurantsSigRef.current = "";
+    ratingsSigRef.current = "";
+    membersSigRef.current = "";
+
+    const cached = readSpaceStatsCache(id);
+    if (cached) {
+      spaceSigRef.current = cached.spaceSig ?? "";
+      restaurantsSigRef.current = cached.restaurantsSig ?? "";
+      ratingsSigRef.current = cached.ratingsSig ?? "";
+      membersSigRef.current = cached.membersSig ?? "";
+      setSpace(cached.space ?? null);
+      setRestaurants(cached.restaurants ?? []);
+      setRatings(cached.ratings ?? []);
+      setMembers(cached.members ?? []);
+      setLoading(false);
+      void loadSpaceStatistics({ silent: true });
+      return;
+    }
+
+    setLoading(true);
     void loadSpaceStatistics();
   }, [id]);
 
@@ -72,23 +197,18 @@ export function SpaceStatisticsPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "spaces", filter: `id=eq.${id}` }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "space_members", filter: `space_id=eq.${id}` }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "restaurants", filter: `space_id=eq.${id}` }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "ratings" }, refresh)
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") refresh();
+        if (status === "SUBSCRIBED") void loadSpaceStatistics({ silent: true });
       });
 
-    const interval = window.setInterval(refresh, 8000);
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", onVisibility);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      refresh();
+    }, 12000);
 
     return () => {
       active = false;
       window.clearInterval(interval);
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", onVisibility);
       supabase.removeChannel(channel);
     };
   }, [id]);

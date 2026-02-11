@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthProvider";
 import { useLanguage } from "../app/LanguageProvider";
@@ -7,6 +7,34 @@ import { supabase } from "../supabase/client";
 import type { Space } from "../types";
 
 type SpaceOwnerMap = Record<string, string>;
+const STATISTICS_CACHE_PREFIX = "statistics-cache-v1:";
+
+type StatisticsCache = {
+  spaces: Space[];
+  owners: SpaceOwnerMap;
+  spacesSig: string;
+  ownersSig: string;
+};
+
+function readStatisticsCache(userId: string): StatisticsCache | null {
+  try {
+    const raw = window.localStorage.getItem(`${STATISTICS_CACHE_PREFIX}${userId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StatisticsCache;
+    if (!parsed || !Array.isArray(parsed.spaces) || typeof parsed.owners !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeStatisticsCache(userId: string, payload: StatisticsCache) {
+  try {
+    window.localStorage.setItem(`${STATISTICS_CACHE_PREFIX}${userId}`, JSON.stringify(payload));
+  } catch {
+    // Best-effort cache.
+  }
+}
 
 export function StatisticsPage() {
   const { user } = useAuth();
@@ -16,16 +44,39 @@ export function StatisticsPage() {
   const [owners, setOwners] = useState<SpaceOwnerMap>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const spacesSigRef = useRef("");
+  const ownersSigRef = useRef("");
+  const ownersRef = useRef<SpaceOwnerMap>({});
+  const inFlightRef = useRef(false);
 
-  const loadSpaces = async () => {
+  const loadSpaces = async (options?: { silent?: boolean }) => {
     if (!user) return;
-    setError("");
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    if (!options?.silent) setError("");
     try {
       const data = await listSpaces(user.id);
-      setSpaces(data);
+      const nextSpacesSig = data
+        .map((space) => `${space.id}|${space.name}|${space.created_by}|${space.updated_at ?? ""}|${space.created_at ?? ""}`)
+        .join("||");
+      if (nextSpacesSig !== spacesSigRef.current) {
+        spacesSigRef.current = nextSpacesSig;
+        setSpaces(data);
+      }
+
       const ownerIds = Array.from(new Set(data.map((space) => space.created_by).filter((id) => id !== user.id)));
       if (!ownerIds.length) {
-        setOwners({});
+        if (ownersSigRef.current !== "") {
+          ownersSigRef.current = "";
+          ownersRef.current = {};
+          setOwners({});
+        }
+        writeStatisticsCache(user.id, {
+          spaces: data,
+          owners: ownersRef.current,
+          spacesSig: spacesSigRef.current,
+          ownersSig: ownersSigRef.current
+        });
         return;
       }
       const { data: users } = await supabase.from("users").select("id, display_name").in("id", ownerIds);
@@ -33,15 +84,43 @@ export function StatisticsPage() {
       (users ?? []).forEach((row: { id: string; display_name: string }) => {
         map[row.id] = row.display_name;
       });
-      setOwners(map);
+      const nextOwnersSig = Object.entries(map)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([id, name]) => `${id}|${name}`)
+        .join("||");
+      if (nextOwnersSig !== ownersSigRef.current) {
+        ownersSigRef.current = nextOwnersSig;
+        ownersRef.current = map;
+        setOwners(map);
+      }
+
+      writeStatisticsCache(user.id, {
+        spaces: data,
+        owners: ownersRef.current,
+        spacesSig: spacesSigRef.current,
+        ownersSig: ownersSigRef.current
+      });
     } catch {
-      setError(t("statisticsLoadError"));
+      if (!options?.silent) setError(t("statisticsLoadError"));
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    if (!user) return;
+    const cached = readStatisticsCache(user.id);
+    if (cached) {
+      spacesSigRef.current = cached.spacesSig ?? "";
+      ownersSigRef.current = cached.ownersSig ?? "";
+      ownersRef.current = cached.owners ?? {};
+      setSpaces(cached.spaces ?? []);
+      setOwners(cached.owners ?? {});
+      setLoading(false);
+      void loadSpaces({ silent: true });
+      return;
+    }
     void loadSpaces();
   }, [user]);
 
@@ -58,21 +137,17 @@ export function StatisticsPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "space_members" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "spaces" }, refresh)
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") refresh();
+        if (status === "SUBSCRIBED") void loadSpaces({ silent: true });
       });
 
-    const interval = window.setInterval(refresh, 8000);
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", onVisibility);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      refresh();
+    }, 12000);
 
     return () => {
       active = false;
       window.clearInterval(interval);
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", onVisibility);
       supabase.removeChannel(channel);
     };
   }, [user]);

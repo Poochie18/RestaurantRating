@@ -50,13 +50,18 @@ export function Header() {
     }
 
     let isActive = true;
+    let isRefreshing = false;
     const refreshIncoming = async () => {
       if (!isActive) return;
+      if (isRefreshing) return;
+      isRefreshing = true;
       try {
         const next = await countIncomingFriendInvites(user.id);
         if (isActive) setIncomingCount(next);
       } catch {
         if (isActive) setIncomingCount(0);
+      } finally {
+        isRefreshing = false;
       }
     };
 
@@ -71,11 +76,10 @@ export function Header() {
         }
       });
 
-    const interval = window.setInterval(refreshIncoming, 8000);
-
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") refreshIncoming();
-    };
+    const visibleInterval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      refreshIncoming();
+    }, 12000);
     const onFriendshipsChanged = (event: Event) => {
       const payload = event as CustomEvent<{ incomingCount?: number }>;
       if (typeof payload.detail?.incomingCount === "number") {
@@ -84,15 +88,11 @@ export function Header() {
       }
       refreshIncoming();
     };
-    window.addEventListener("focus", refreshIncoming);
-    document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("friendships-changed", onFriendshipsChanged);
 
     return () => {
       isActive = false;
-      window.clearInterval(interval);
-      window.removeEventListener("focus", refreshIncoming);
-      document.removeEventListener("visibilitychange", onVisibility);
+      window.clearInterval(visibleInterval);
       window.removeEventListener("friendships-changed", onFriendshipsChanged);
       supabase.removeChannel(channel);
     };

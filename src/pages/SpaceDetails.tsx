@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Modal } from "../components/Modal";
 import { useLanguage } from "../app/LanguageProvider";
@@ -38,6 +38,45 @@ type RestaurantFormErrors = { name?: string };
 type SortKey = "name" | "avg" | "newest";
 type UserMini = { id: string; display_name: string; email: string };
 type SpaceMemberView = { user_id: string; role: "owner" | "member"; user: UserMini | null };
+const SPACE_DETAILS_CACHE_PREFIX = "space-details-cache-v1:";
+
+type SpaceDetailsCache = {
+  space: Space | null;
+  restaurants: Restaurant[];
+  ratings: Rating[];
+  members: SpaceMemberView[];
+  spaceSig: string;
+  restaurantsSig: string;
+  ratingsSig: string;
+  membersSig: string;
+};
+
+function readSpaceDetailsCache(spaceId: string): SpaceDetailsCache | null {
+  try {
+    const raw = window.localStorage.getItem(`${SPACE_DETAILS_CACHE_PREFIX}${spaceId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SpaceDetailsCache;
+    if (
+      !parsed ||
+      !Array.isArray(parsed.restaurants) ||
+      !Array.isArray(parsed.ratings) ||
+      !Array.isArray(parsed.members)
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeSpaceDetailsCache(spaceId: string, payload: SpaceDetailsCache) {
+  try {
+    window.localStorage.setItem(`${SPACE_DETAILS_CACHE_PREFIX}${spaceId}`, JSON.stringify(payload));
+  } catch {
+    // Best-effort cache.
+  }
+}
 
 export function SpaceDetailsPage() {
   const { id } = useParams();
@@ -70,39 +109,106 @@ export function SpaceDetailsPage() {
 
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("avg");
+  const spaceSigRef = useRef("");
+  const restaurantsSigRef = useRef("");
+  const ratingsSigRef = useRef("");
+  const membersSigRef = useRef("");
+  const inFlightRef = useRef(false);
+  const spaceRef = useRef<Space | null>(null);
+  const restaurantsRef = useRef<Restaurant[]>([]);
+  const ratingsRef = useRef<Rating[]>([]);
+  const membersRef = useRef<SpaceMemberView[]>([]);
 
-  const loadSpace = async () => {
+  const toSpaceSig = (value: Space | null) =>
+    value ? `${value.id}|${value.name}|${value.created_by}|${value.updated_at ?? ""}|${value.created_at ?? ""}` : "";
+
+  const toRestaurantsSig = (value: Restaurant[]) =>
+    value
+      .map((item) => `${item.id}|${item.name}|${item.location ?? ""}|${item.updated_at ?? ""}|${item.created_at ?? ""}`)
+      .join("||");
+
+  const toRatingsSig = (value: Rating[]) =>
+    value
+      .map(
+        (item) =>
+          `${item.id}|${item.restaurant_id}|${item.user_id}|${item.overall_avg}|${item.updated_at ?? ""}|${item.created_at ?? ""}`
+      )
+      .join("||");
+
+  const toMembersSig = (value: SpaceMemberView[]) =>
+    value
+      .map((item) => `${item.user_id}|${item.role}|${item.user?.display_name ?? ""}|${item.user?.email ?? ""}`)
+      .join("||");
+
+  const persistDetailsCache = () => {
+    if (!id) return;
+    writeSpaceDetailsCache(id, {
+      space: spaceRef.current,
+      restaurants: restaurantsRef.current,
+      ratings: ratingsRef.current,
+      members: membersRef.current,
+      spaceSig: spaceSigRef.current,
+      restaurantsSig: restaurantsSigRef.current,
+      ratingsSig: ratingsSigRef.current,
+      membersSig: membersSigRef.current
+    });
+  };
+
+  const loadSpace = async (options?: { silent?: boolean }) => {
     if (!id) return;
     try {
       const data = await getSpace(id);
-      setSpace(data);
+      const nextSpaceSig = toSpaceSig(data);
+      if (nextSpaceSig !== spaceSigRef.current) {
+        spaceSigRef.current = nextSpaceSig;
+        spaceRef.current = data;
+        setSpace(data);
+      }
       setSpaceName(data?.name ?? "");
+      persistDetailsCache();
     } catch {
-      setError("Failed to load space.");
+      if (!options?.silent) setError("Failed to load space.");
     }
   };
 
-  const loadRestaurants = async () => {
+  const loadRestaurants = async (options?: { silent?: boolean }) => {
     if (!id) return;
     try {
       const data = await listSpaceRestaurants(id);
-      setRestaurants(data);
+      const nextRestaurantsSig = toRestaurantsSig(data);
+      if (nextRestaurantsSig !== restaurantsSigRef.current) {
+        restaurantsSigRef.current = nextRestaurantsSig;
+        restaurantsRef.current = data;
+        setRestaurants(data);
+      }
       const ratingData = await listRatingsForRestaurants(data.map((r) => r.id));
-      setRatings(ratingData);
+      const nextRatingsSig = toRatingsSig(ratingData);
+      if (nextRatingsSig !== ratingsSigRef.current) {
+        ratingsSigRef.current = nextRatingsSig;
+        ratingsRef.current = ratingData;
+        setRatings(ratingData);
+      }
+      persistDetailsCache();
     } catch {
-      setError("Failed to load restaurants.");
+      if (!options?.silent) setError("Failed to load restaurants.");
     } finally {
       setLoading(false);
     }
   };
 
-  const loadMembers = async () => {
+  const loadMembers = async (options?: { silent?: boolean }) => {
     if (!id) return;
     try {
       const data = await listSpaceMembersWithUsers(id);
-      setMembers(data);
+      const nextMembersSig = toMembersSig(data);
+      if (nextMembersSig !== membersSigRef.current) {
+        membersSigRef.current = nextMembersSig;
+        membersRef.current = data;
+        setMembers(data);
+      }
+      persistDetailsCache();
     } catch {
-      setMembers([]);
+      if (!options?.silent) setMembers([]);
     }
   };
 
@@ -117,20 +223,56 @@ export function SpaceDetailsPage() {
   };
 
   useEffect(() => {
-    loadSpace();
-    loadRestaurants();
-    loadMembers();
-    loadFriends();
+    if (!id) return;
+    spaceSigRef.current = "";
+    restaurantsSigRef.current = "";
+    ratingsSigRef.current = "";
+    membersSigRef.current = "";
+    inFlightRef.current = false;
+
+    const cached = readSpaceDetailsCache(id);
+    if (cached) {
+      spaceSigRef.current = cached.spaceSig ?? "";
+      restaurantsSigRef.current = cached.restaurantsSig ?? "";
+      ratingsSigRef.current = cached.ratingsSig ?? "";
+      membersSigRef.current = cached.membersSig ?? "";
+      spaceRef.current = cached.space ?? null;
+      restaurantsRef.current = cached.restaurants ?? [];
+      ratingsRef.current = cached.ratings ?? [];
+      membersRef.current = cached.members ?? [];
+      setSpace(cached.space ?? null);
+      setRestaurants(cached.restaurants ?? []);
+      setRatings(cached.ratings ?? []);
+      setMembers(cached.members ?? []);
+      setSpaceName(cached.space?.name ?? "");
+      setLoading(false);
+      void loadSpace({ silent: true });
+      void loadRestaurants({ silent: true });
+      void loadMembers({ silent: true });
+      void loadFriends();
+      return;
+    }
+
+    setLoading(true);
+    void loadSpace();
+    void loadRestaurants();
+    void loadMembers();
+    void loadFriends();
   }, [id, user]);
 
   useEffect(() => {
     if (!id || !user) return;
     let active = true;
-    const refresh = () => {
+    const refresh = async () => {
       if (!active) return;
-      loadSpace();
-      loadRestaurants();
-      loadMembers();
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
+      await Promise.all([
+        loadSpace({ silent: true }),
+        loadRestaurants({ silent: true }),
+        loadMembers({ silent: true })
+      ]);
+      inFlightRef.current = false;
     };
 
     const channel = supabase
@@ -138,23 +280,18 @@ export function SpaceDetailsPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "space_members", filter: `space_id=eq.${id}` }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "restaurants", filter: `space_id=eq.${id}` }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "spaces", filter: `id=eq.${id}` }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "ratings" }, refresh)
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") refresh();
+        if (status === "SUBSCRIBED") void refresh();
       });
 
-    const interval = window.setInterval(refresh, 8000);
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", onVisibility);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void refresh();
+    }, 12000);
 
     return () => {
       active = false;
       window.clearInterval(interval);
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", onVisibility);
       supabase.removeChannel(channel);
     };
   }, [id, user]);

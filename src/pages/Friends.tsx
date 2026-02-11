@@ -242,7 +242,10 @@ export function FriendsPage() {
         if (status === "SUBSCRIBED") refreshAll();
       });
 
-    const interval = window.setInterval(refreshAll, 8000);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      refreshAll();
+    }, 12000);
 
     return () => {
       active = false;
