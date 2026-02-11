@@ -170,9 +170,9 @@ export function SpaceStatisticsPage() {
 
   return (
     <div className="container">
-      <div className="space-toolbar">
+      <div className="space-toolbar stats-toolbar">
         <Link to="/statistics" className="btn btn-ghost">
-          {"<-"} {t("statisticsBackToList")}
+          {"<"} {t("statisticsBackToList")}
         </Link>
         {id && (
           <button className="btn btn-ghost" onClick={() => navigate(`/spaces/${id}`)}>

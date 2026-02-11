@@ -17,7 +17,7 @@ export function RestaurantCard({ restaurant, onEdit, onDelete, canEdit, overallA
           <h3 className="card-title">
             <Link to={`/restaurants/${restaurant.id}`}>{restaurant.name}</Link>
           </h3>
-          <p className="muted">{restaurant.location}</p>
+          {restaurant.location ? <p className="muted">{restaurant.location}</p> : null}
         </div>
         {overallAvg != null && (
           <div className="pill">Avg {overallAvg.toFixed(1)}</div>

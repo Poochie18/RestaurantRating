@@ -124,7 +124,7 @@ export function RestaurantDetailsPage() {
       <div className="page-header">
         <div>
           <h1>{restaurant.name}</h1>
-          <p className="muted">{restaurant.location}</p>
+          {restaurant.location ? <p className="muted">{restaurant.location}</p> : null}
         </div>
         <button className="btn" onClick={() => setModalOpen(true)}>
           {userRating ? "Edit your rating" : "Rate this restaurant"}

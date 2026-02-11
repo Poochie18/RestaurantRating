@@ -593,6 +593,17 @@ select {
   color: var(--ink);
 }
 
+.field input[aria-invalid="true"],
+.field select[aria-invalid="true"] {
+  border-color: rgba(255, 107, 107, 0.65);
+}
+
+.field-error {
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 500;
+}
+
 .form-footer {
   display: flex;
   align-items: center;
@@ -1003,6 +1014,16 @@ select {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
+  }
+
+  .space-toolbar.stats-toolbar {
+    flex-direction: row;
+    align-items: stretch;
+  }
+
+  .space-toolbar.stats-toolbar > .btn {
+    flex: 1 1 0;
+    text-align: center;
   }
 
   .space-actions {

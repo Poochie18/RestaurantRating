@@ -24,6 +24,10 @@ create table if not exists public.space_members (
 alter table public.restaurants
   add column if not exists space_id uuid references public.spaces(id) on delete cascade;
 
+-- Make restaurant location optional
+alter table public.restaurants
+  alter column location drop not null;
+
 alter table public.ratings
   add column if not exists interior int not null default 5 check (interior between 1 and 10);
 

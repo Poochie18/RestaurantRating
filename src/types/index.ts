@@ -73,7 +73,7 @@ export type Restaurant = {
   id: string;
   space_id?: string | null;
   name: string;
-  location: string;
+  location: string | null;
   created_by: string;
   created_at?: string;
   updated_at?: string;
