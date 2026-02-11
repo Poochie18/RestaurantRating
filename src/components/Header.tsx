@@ -1,9 +1,11 @@
-﻿import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { logout } from "../supabase/auth";
 import { useAuth } from "../app/AuthProvider";
 import { useLanguage } from "../app/LanguageProvider";
 import { Modal } from "./Modal";
+import { supabase } from "../supabase/client";
+import { countIncomingFriendInvites } from "../supabase/db";
 
 export function Header() {
   const { user, profile } = useAuth();
@@ -11,6 +13,7 @@ export function Header() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [incomingCount, setIncomingCount] = useState(0);
 
   const handleLogout = async () => {
     await logout();
@@ -20,6 +23,51 @@ export function Header() {
   const displayName = profile?.display_name || user?.user_metadata?.display_name || user?.email || "User";
   const avatar = profile?.photo_url || null;
   const initials = (displayName.trim()[0] || "U").toUpperCase();
+
+  useEffect(() => {
+    if (!user) {
+      setIncomingCount(0);
+      return;
+    }
+
+    let isActive = true;
+    const refreshIncoming = async () => {
+      if (!isActive) return;
+      try {
+        const next = await countIncomingFriendInvites(user.id);
+        if (isActive) setIncomingCount(next);
+      } catch {
+        if (isActive) setIncomingCount(0);
+      }
+    };
+
+    refreshIncoming();
+    const channel = supabase
+      .channel(`friendships-badge-${user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "friendships" }, refreshIncoming)
+      .on("postgres_changes", { event: "*", schema: "public", table: "friend_requests" }, refreshIncoming)
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          refreshIncoming();
+        }
+      });
+
+    const interval = window.setInterval(refreshIncoming, 8000);
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refreshIncoming();
+    };
+    window.addEventListener("focus", refreshIncoming);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshIncoming);
+      document.removeEventListener("visibilitychange", onVisibility);
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   return (
     <div className="app-shell">
@@ -32,7 +80,14 @@ export function Header() {
             {t("home")}
           </NavLink>
           <NavLink to="/friends" className={({ isActive }) => (isActive ? "active" : "")}>
-            {t("friends")}
+            <span className="nav-link-with-badge">
+              {t("friends")}
+              {incomingCount > 0 && (
+                <span className="friends-badge" aria-label={`${incomingCount} pending friend requests`}>
+                  {incomingCount > 9 ? "9+" : incomingCount}
+                </span>
+              )}
+            </span>
           </NavLink>
         </nav>
         <div className="header-actions">

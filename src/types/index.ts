@@ -32,6 +32,43 @@ export type SpaceInvite = {
   created_at?: string;
 };
 
+export type FriendRequest = {
+  id: string;
+  requester_id: string;
+  recipient_id: string;
+  status: "pending" | "accepted" | "declined";
+  created_at?: string;
+};
+
+export type Friend = {
+  id: string;
+  user_id: string;
+  friend_id: string;
+  created_at?: string;
+};
+
+export type FriendshipStatus = "pending" | "accepted";
+
+export type FriendRelationState = "none" | "outgoing_pending" | "incoming_pending" | "friends";
+
+export type Friendship = {
+  id: string;
+  user_a: string;
+  user_b: string;
+  requested_by: string;
+  status: FriendshipStatus;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type FriendRelation = {
+  other_user_id: string;
+  state: FriendRelationState;
+  requested_by: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type Restaurant = {
   id: string;
   space_id?: string | null;
