@@ -33,6 +33,7 @@ const categories: { key: RatingCategory; labelKey: string }[] = [
 ];
 
 const emptyRestaurant = { name: "", location: "" };
+type RestaurantFormErrors = { name?: string };
 
 type SortKey = "name" | "avg" | "newest";
 type UserMini = { id: string; display_name: string; email: string };
@@ -59,6 +60,8 @@ export function SpaceDetailsPage() {
   const [saving, setSaving] = useState(false);
 
   const [restaurantForm, setRestaurantForm] = useState(emptyRestaurant);
+  const [restaurantFormErrors, setRestaurantFormErrors] = useState<RestaurantFormErrors>({});
+  const [restaurantFormError, setRestaurantFormError] = useState("");
   const [editingRestaurant, setEditingRestaurant] = useState<Restaurant | null>(null);
   const [ratingRestaurant, setRatingRestaurant] = useState<Restaurant | null>(null);
   const [spaceName, setSpaceName] = useState("");
@@ -190,9 +193,11 @@ export function SpaceDetailsPage() {
 
   const filteredRestaurants = useMemo(() => {
     const query = filter.trim().toLowerCase();
-    let list = restaurants.filter((r) =>
-      query ? r.name.toLowerCase().includes(query) || r.location.toLowerCase().includes(query) : true
-    );
+    let list = restaurants.filter((r) => {
+      if (!query) return true;
+      const location = (r.location ?? "").toLowerCase();
+      return r.name.toLowerCase().includes(query) || location.includes(query);
+    });
 
     if (sort === "name") {
       list = [...list].sort((a, b) => a.name.localeCompare(b.name));
@@ -207,22 +212,30 @@ export function SpaceDetailsPage() {
   const handleSaveRestaurant = async (event: FormEvent) => {
     event.preventDefault();
     if (!user || !id) return;
-    if (!restaurantForm.name.trim() || !restaurantForm.location.trim()) {
-      setError("Name and location are required.");
+    const trimmedName = restaurantForm.name.trim();
+    const trimmedLocation = restaurantForm.location.trim();
+    const nextErrors: RestaurantFormErrors = {};
+    if (!trimmedName) {
+      nextErrors.name = t("restaurantNameRequired");
+    }
+    if (nextErrors.name) {
+      setRestaurantFormErrors(nextErrors);
+      setRestaurantFormError("");
       return;
     }
     setSaving(true);
-    setError("");
+    setRestaurantFormErrors({});
+    setRestaurantFormError("");
     try {
       if (editingRestaurant) {
         await updateRestaurant(editingRestaurant.id, {
-          name: restaurantForm.name.trim(),
-          location: restaurantForm.location.trim()
+          name: trimmedName,
+          location: trimmedLocation || ""
         });
       } else {
         await createRestaurant({
-          name: restaurantForm.name.trim(),
-          location: restaurantForm.location.trim(),
+          name: trimmedName,
+          location: trimmedLocation || "",
           created_by: user.id,
           space_id: id
         });
@@ -230,9 +243,11 @@ export function SpaceDetailsPage() {
       setAddOpen(false);
       setEditingRestaurant(null);
       setRestaurantForm(emptyRestaurant);
+      setRestaurantFormErrors({});
+      setRestaurantFormError("");
       await loadRestaurants();
     } catch {
-      setError("Failed to save restaurant.");
+      setRestaurantFormError(t("restaurantSaveFailed"));
     } finally {
       setSaving(false);
     }
@@ -373,7 +388,16 @@ export function SpaceDetailsPage() {
               {t("openStatistics")}
             </button>
           )}
-          <button className="btn" onClick={() => setAddOpen(true)}>
+          <button
+            className="btn"
+            onClick={() => {
+              setEditingRestaurant(null);
+              setRestaurantForm(emptyRestaurant);
+              setRestaurantFormErrors({});
+              setRestaurantFormError("");
+              setAddOpen(true);
+            }}
+          >
             {t("addRestaurant")}
           </button>
           {isOwner && (
@@ -457,7 +481,7 @@ export function SpaceDetailsPage() {
               <div className="space-card-header" onClick={() => setExpandedId(isOpen ? null : restaurant.id)}>
                 <div>
                   <h3 className="card-title">{restaurant.name}</h3>
-                  <p className="muted">{restaurant.location}</p>
+                  {restaurant.location ? <p className="muted">{restaurant.location}</p> : null}
                 </div>
                 <div className="space-card-meta">
                   <span className="pill">Avg {avg ? avg.toFixed(1) : "-"}</span>
@@ -476,7 +500,9 @@ export function SpaceDetailsPage() {
                     onClick={(event) => {
                       event.stopPropagation();
                       setEditingRestaurant(restaurant);
-                      setRestaurantForm({ name: restaurant.name, location: restaurant.location });
+                      setRestaurantForm({ name: restaurant.name, location: restaurant.location ?? "" });
+                      setRestaurantFormErrors({});
+                      setRestaurantFormError("");
                       setAddOpen(true);
                     }}
                     aria-label={t("edit")}
@@ -530,18 +556,43 @@ export function SpaceDetailsPage() {
       <Modal title={editingRestaurant ? t("editRestaurant") : t("addRestaurant")} open={addOpen} onClose={() => {
         setAddOpen(false);
         setEditingRestaurant(null);
+        setRestaurantForm(emptyRestaurant);
+        setRestaurantFormErrors({});
+        setRestaurantFormError("");
       }}>
         <form className="form" onSubmit={handleSaveRestaurant}>
           <label className="field">
             <span>{t("restaurantName")}</span>
-            <input value={restaurantForm.name} onChange={(event) => setRestaurantForm({ ...restaurantForm, name: event.target.value })} />
+            <input
+              value={restaurantForm.name}
+              aria-invalid={restaurantFormErrors.name ? "true" : "false"}
+              onChange={(event) => {
+                setRestaurantForm({ ...restaurantForm, name: event.target.value });
+                if (restaurantFormErrors.name) setRestaurantFormErrors((prev) => ({ ...prev, name: undefined }));
+              }}
+            />
+            {restaurantFormErrors.name ? <span className="field-error">{restaurantFormErrors.name}</span> : null}
           </label>
           <label className="field">
-            <span>{t("restaurantLocation")}</span>
-            <input value={restaurantForm.location} onChange={(event) => setRestaurantForm({ ...restaurantForm, location: event.target.value })} />
+            <span>{t("restaurantLocation")} ({t("optional")})</span>
+            <input
+              value={restaurantForm.location}
+              onChange={(event) => setRestaurantForm({ ...restaurantForm, location: event.target.value })}
+            />
           </label>
+          {restaurantFormError ? <div className="error">{restaurantFormError}</div> : null}
           <div className="form-footer">
-            <button type="button" className="btn btn-ghost" onClick={() => setAddOpen(false)}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                setAddOpen(false);
+                setEditingRestaurant(null);
+                setRestaurantForm(emptyRestaurant);
+                setRestaurantFormErrors({});
+                setRestaurantFormError("");
+              }}
+            >
               {t("cancel")}
             </button>
             <button type="submit" className="btn" disabled={saving}>

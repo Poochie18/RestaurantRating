@@ -443,12 +443,12 @@ export async function listSpaceRestaurants(spaceId: string): Promise<Restaurant[
   return data ?? [];
 }
 
-export async function createRestaurant(input: Pick<Restaurant, "name" | "location" | "created_by" | "space_id">) {
+export async function createRestaurant(input: Pick<Restaurant, "name" | "created_by" | "space_id"> & { location?: string | null }) {
   const { error } = await supabase.from("restaurants").insert(input);
   if (error) throw error;
 }
 
-export async function updateRestaurant(id: string, input: Pick<Restaurant, "name" | "location">) {
+export async function updateRestaurant(id: string, input: Pick<Restaurant, "name"> & { location?: string | null }) {
   const { error } = await supabase.from("restaurants").update(input).eq("id", id);
   if (error) throw error;
 }
