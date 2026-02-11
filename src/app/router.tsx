@@ -6,6 +6,8 @@ import { ProfilePage } from "../pages/Profile";
 import { RestaurantDetailsPage } from "../pages/RestaurantDetails";
 import { FriendsPage } from "../pages/Friends";
 import { SpaceDetailsPage } from "../pages/SpaceDetails";
+import { StatisticsPage } from "../pages/Statistics";
+import { SpaceStatisticsPage } from "../pages/SpaceStatistics";
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import { Header } from "../components/Header";
 import { useAuth } from "./AuthProvider";
@@ -28,6 +30,8 @@ export function AppRouter() {
         <Route element={<Header />}>
           <Route path="/app" element={<HomePage />} />
           <Route path="/friends" element={<FriendsPage />} />
+          <Route path="/statistics" element={<StatisticsPage />} />
+          <Route path="/statistics/:id" element={<SpaceStatisticsPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/spaces/:id" element={<SpaceDetailsPage />} />
           <Route path="/restaurants/:id" element={<RestaurantDetailsPage />} />
