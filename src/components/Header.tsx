@@ -76,14 +76,24 @@ export function Header() {
     const onVisibility = () => {
       if (document.visibilityState === "visible") refreshIncoming();
     };
+    const onFriendshipsChanged = (event: Event) => {
+      const payload = event as CustomEvent<{ incomingCount?: number }>;
+      if (typeof payload.detail?.incomingCount === "number") {
+        setIncomingCount(payload.detail.incomingCount);
+        return;
+      }
+      refreshIncoming();
+    };
     window.addEventListener("focus", refreshIncoming);
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("friendships-changed", onFriendshipsChanged);
 
     return () => {
       isActive = false;
       window.clearInterval(interval);
       window.removeEventListener("focus", refreshIncoming);
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("friendships-changed", onFriendshipsChanged);
       supabase.removeChannel(channel);
     };
   }, [user]);
@@ -107,6 +117,9 @@ export function Header() {
                 </span>
               )}
             </span>
+          </NavLink>
+          <NavLink to="/statistics" className={({ isActive }) => (isActive ? "active" : "")}>
+            {t("statistics")}
           </NavLink>
         </nav>
         <div className="header-actions">

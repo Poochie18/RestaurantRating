@@ -94,6 +94,13 @@ export function FriendsPage() {
     () => Object.fromEntries(relations.map((relation) => [relation.other_user_id, relation])),
     [relations]
   );
+  const notifyFriendshipsChanged = (incomingCount?: number) => {
+    window.dispatchEvent(
+      new CustomEvent("friendships-changed", {
+        detail: typeof incomingCount === "number" ? { incomingCount } : {}
+      })
+    );
+  };
 
   const incoming = useMemo(
     () => relations.filter((relation) => relation.state === "incoming_pending"),
@@ -111,6 +118,8 @@ export function FriendsPage() {
   const loadAll = async () => {
     if (!user) return;
     const relationData = await listFriendRelations(user.id);
+    const incomingCount = relationData.filter((relation) => relation.state === "incoming_pending").length;
+    notifyFriendshipsChanged(incomingCount);
     const nextRelationsSig = relationData
       .map((item) => `${item.other_user_id}|${item.state}|${item.requested_by ?? ""}|${item.updated_at ?? ""}|${item.created_at ?? ""}`)
       .join("||");
@@ -205,6 +214,7 @@ export function FriendsPage() {
       namesRef.current = cached.names ?? {};
       setRelations(cached.relations ?? []);
       setNames(cached.names ?? {});
+      notifyFriendshipsChanged((cached.relations ?? []).filter((relation) => relation.state === "incoming_pending").length);
     }
     loadAll();
   }, [user]);
@@ -407,8 +417,22 @@ export function FriendsPage() {
         </button>
       </div>
 
-      {message && <div className="success">{message}</div>}
-      {error && <div className="error">{error}</div>}
+      {message && (
+        <div className="success alert-dismissible">
+          <span>{message}</span>
+          <button className="alert-close" onClick={() => setMessage("")} aria-label={t("close")}>
+            ×
+          </button>
+        </div>
+      )}
+      {error && (
+        <div className="error alert-dismissible">
+          <span>{error}</span>
+          <button className="alert-close" onClick={() => setError("")} aria-label={t("close")}>
+            ×
+          </button>
+        </div>
+      )}
 
       {incoming.length > 0 && (
         <div className="card">

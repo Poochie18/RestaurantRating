@@ -368,6 +368,11 @@ export function SpaceDetailsPage() {
           ← {t("home")}
         </Link>
         <div className="space-actions">
+          {id && (
+            <button className="btn btn-ghost" onClick={() => navigate(`/statistics/${id}`)}>
+              {t("openStatistics")}
+            </button>
+          )}
           <button className="btn" onClick={() => setAddOpen(true)}>
             {t("addRestaurant")}
           </button>
